@@ -208,7 +208,7 @@
 
     // ---------------- Matter setup -----------------
     const engine = Engine.create({ enableSleeping:true });
-    engine.world.gravity.y = 1; // default
+    engine.world.gravity.y = 0; // removed default downward gravity // default
     const render = Render.create({
       element: stage,
       engine,
@@ -355,7 +355,20 @@
       const w = mm2px(state.rackB), h = mm2px(state.rackL);
       const a = (state.randRot? (Math.random()*Math.PI*2) : (angleRad||0));
       let ang = snapAngleRad(a);
-      const body = Bodies.rectangle(px, py, w, h, { label:'rack', restitution: state.restRackRack, friction:0.1, frictionStatic:0.5, frictionAir: state.angDamp*0.5 });
+      const body = Bodies.rectangle(px, py, w, h, {
+        label:'rack',
+        restitution: state.restRackRack,
+        friction: 0.1,
+        frictionStatic: 0.5,
+        frictionAir: state.angDamp*0.5,
+        chamfer: { radius: Math.min(w,h) * 0.08 },
+        render: {
+          fillStyle: 'rgba(18,32,54,0.60)',
+          strokeStyle: '#2e4363',
+          lineWidth: 1.5,
+          opacity: 0.95
+        }
+      });
       Body.setAngle(body, ang);
       if(state.lockRot){ Body.setAngularVelocity(body, 0); Body.setInertia(body, Infinity); }
       if(anyVertexOutsideTank(body) || intersectsStatics(body) || intersectsRacks(body)) return null;
@@ -497,7 +510,11 @@
         if(Array.isArray(data.racks)){
           for(const r of data.racks){
             const w = mm2px(r.B||state.rackB), h = mm2px(r.L||state.rackL);
-            const b = Bodies.rectangle(r.x, r.y, w, h, { label:'rack', restitution: state.restRackRack, friction:0.1, frictionStatic:0.5, frictionAir: state.angDamp*0.5 });
+            const b = Bodies.rectangle(r.x, r.y, w, h, {
+            label:'rack', restitution: state.restRackRack, friction:0.1, frictionStatic:0.5, frictionAir: state.angDamp*0.5,
+            chamfer: { radius: Math.min(w,h) * 0.08 },
+            render: { fillStyle:'rgba(18,32,54,0.60)', strokeStyle:'#2e4363', lineWidth:1.5, opacity:0.95 }
+          });
             Body.setAngle(b, r.angle||0); b.plugin = { mm: { B: r.B||state.rackB, L: r.L||state.rackL } };
             Composite.add(world, b); racks.push(b);
           }
