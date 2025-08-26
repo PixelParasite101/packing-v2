@@ -1,0 +1,582 @@
+<!doctype html>
+<html lang="da">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Rund Tank – 2D fysik packer</title>
+  <style>
+    :root{ --bg:#0b0e14; --panel:#121826cc; --panel-border:#273043; --text:#e7ecf4; --muted:#9aa7bd; --ok:#61d095; --bad:#d06161; --accent:#7dd3fc; --sel:#d0b861; }
+    html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
+    #wrap{position:relative;height:100%;width:100%}
+    canvas{display:block;background:conic-gradient(from 180deg at 50% 50%, #0b0e14, #0d1018 25%, #0b0e14 50%, #0d1018 75%, #0b0e14)}
+
+    /* Sidepanel */
+    #panel{position:absolute;left:14px;top:14px;display:flex;flex-direction:column;gap:10px;padding:12px;border:1px solid var(--panel-border);border-radius:14px;background:var(--panel);backdrop-filter: blur(6px);min-width:360px;max-width:520px}
+    .row{display:grid;grid-template-columns:1fr 180px;gap:10px;align-items:center}
+    .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+    label{font-size:12px;color:var(--muted);letter-spacing:.2px}
+    input[type=number], input[type=text]{height:34px;background:#0f1521;color:var(--text);border:1px solid var(--panel-border);border-radius:8px;padding:0 10px}
+    input[type=checkbox]{transform:translateY(1px)}
+    select{height:34px;background:#0f1521;color:var(--text);border:1px solid var(--panel-border);border-radius:8px;padding:0 8px}
+    button{height:36px;border-radius:10px;border:1px solid var(--panel-border);background:#161e2e;color:var(--text);cursor:pointer}
+    button:hover{background:#1b2437}
+    .toolbar{display:flex;gap:8px;flex-wrap:wrap}
+    .btn-ghost{background:#0f1521}
+    .btn-accent{border-color:#294766}
+    .section-title{font-size:12px;color:var(--muted);margin-top:4px;margin-bottom:-4px;letter-spacing:.3px}
+
+    /* HUD */
+    #hud{position:absolute;right:14px;top:14px;padding:10px 12px;border:1px solid var(--panel-border);border-radius:12px;background:var(--panel);display:flex;gap:16px;align-items:center;backdrop-filter: blur(6px);font-size:13px}
+    .chip{display:flex;gap:6px;align-items:center}
+    .dot{width:8px;height:8px;border-radius:50%}
+    .ok{background:var(--ok)} .bad{background:var(--bad)}
+    #footer{position:absolute;right:14px;bottom:12px;opacity:.65;font-size:12px;user-select:none}
+    .kbd{display:inline-block;border:1px solid var(--panel-border);background:#0f1521;padding:2px 6px;border-radius:6px;margin:0 2px}
+    .hint{font-size:12px;color:var(--muted)}
+    .mini{font-size:11px;color:var(--muted)}
+  </style>
+</head>
+<body>
+  <div id="wrap">
+    <canvas id="world"></canvas>
+
+    <div id="panel" role="region" aria-label="Kontrolpanel">
+      <div class="section-title">Tank & skalering</div>
+      <div class="row">
+        <label for="tankDia">Tank Ø (mm)</label>
+        <input id="tankDia" type="number" inputmode="decimal" value="700" step="10" min="100">
+      </div>
+      <div class="row">
+        <label for="coreDia">Indre kerne Ø (mm)</label>
+        <input id="coreDia" type="number" inputmode="decimal" value="0" step="5" min="0">
+      </div>
+
+      <div class="section-title">Rack størrelse</div>
+      <div class="row3">
+        <div>
+          <label for="rackW">B (mm)</label>
+          <input id="rackW" type="number" value="25" step="1" min="1">
+        </div>
+        <div>
+          <label for="rackH">L (mm)</label>
+          <input id="rackH" type="number" value="250" step="1" min="1">
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-start;justify-content:center">
+          <label style="display:flex;align-items:center;gap:8px;margin-top:4px"><input id="randRot" type="checkbox" checked> Tilfældig rotation</label>
+          <label style="display:flex;align-items:center;gap:8px"><input id="randPos" type="checkbox" checked> Tilfældig position</label>
+        </div>
+      </div>
+
+      <div class="section-title">Orientering</div>
+      <div class="row">
+        <label for="snapStep">Snap (interval °)</label>
+        <select id="snapStep">
+          <option value="0">Fra</option>
+          <option value="15">15°</option>
+          <option value="30">30°</option>
+          <option value="45">45°</option>
+          <option value="90">90°</option>
+        </select>
+      </div>
+      <div class="row">
+        <label for="snapList">Tilladte vinkler (°, kommasep.)</label>
+        <input id="snapList" type="text" placeholder="fx 0,90">
+      </div>
+      <div class="row">
+        <label for="lockOrientation">Lås orientering</label>
+        <div style="display:flex;align-items:center;gap:8px">
+          <input id="lockOrientation" type="checkbox">
+          <button id="snapAll" title="Snap alle nu">Snap alle</button>
+        </div>
+      </div>
+
+      <div class="section-title">Vægge & radial kraft</div>
+      <div class="row">
+        <label for="hardOuter">Hård ydervæg (glat cirkel)</label>
+        <input id="hardOuter" type="checkbox" checked>
+      </div>
+      <div class="row">
+        <label for="forceOuterOn">Kraft mod ydervæg</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input id="forceOuterOn" type="checkbox">
+          <input id="forceOuterVal" type="number" step="0.0001" min="0" max="0.01" value="0.0004">
+        </div>
+      </div>
+      <div class="row">
+        <label for="forceInnerOn">Kraft mod kerne</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input id="forceInnerOn" type="checkbox">
+          <input id="forceInnerVal" type="number" step="0.0001" min="0" max="0.01" value="0.0004">
+        </div>
+      </div>
+
+      <div class="section-title">Elasticitet (restitution)</div>
+      <div class="row">
+        <label for="restRR">Rack ↔ rack</label>
+        <input id="restRR" type="number" step="0.1" min="0" max="1" value="0.6">
+      </div>
+      <div class="row">
+        <label for="restRS">Rack ↔ vægge/kerne</label>
+        <input id="restRS" type="number" step="0.1" min="0" max="1" value="0.6">
+      </div>
+      <div class="row">
+        <label for="restOuter">Hård ydervæg (glat)</label>
+        <input id="restOuter" type="number" step="0.1" min="0" max="1" value="0.6">
+      </div>
+      <div class="mini">0 = “klasker”, 1 = perfekt bouncy. Gælder ved alle kontakter.</div>
+
+      <div class="toolbar">
+        <button id="addOne" class="btn-accent">+ Rack</button>
+        <button id="addTen">+10</button>
+        <button id="clearRacks" class="btn-ghost">Ryd racks</button>
+        <button id="rebuild" title="Genskab tank/kerne">Genopbyg</button>
+      </div>
+
+      <div class="section-title">Vægge (radiale)</div>
+      <div class="row3">
+        <div>
+          <label for="wallDeg">Vinkel (°)</label>
+          <input id="wallDeg" type="number" value="0" step="15">
+        </div>
+        <div>
+          <label for="wallThk">Tykkelse (mm)</label>
+          <input id="wallThk" type="number" value="10" step="1" min="1">
+        </div>
+        <div style="display:flex;align-items:end"><button id="addWall">+ Væg</button></div>
+      </div>
+
+      <div class="section-title">Layout</div>
+      <div class="toolbar">
+        <button id="togglePause">Pause/Play</button>
+        <button id="save">Gem layout</button>
+        <label for="loadFile" style="display:flex;align-items:center;gap:8px">
+          <input id="loadFile" type="file" accept="application/json" style="display:none">
+          <button id="loadBtn">Indlæs layout</button>
+        </label>
+        <button id="deleteSelected" class="btn-ghost">Slet valgt</button>
+        <button id="deleteOverlaps" class="btn-ghost" title="Slet emner der overlapper, rammer kerne eller går udenfor tank">Slet overlaps</button>
+        <button id="runTests" class="btn-ghost" title="Kør indbyggede selvtests">Kør tests</button>
+      </div>
+
+      <div class="hint">
+        Genveje:
+        <span class="kbd">Venstreklik</span> placér / vælg ·
+        <span class="kbd">Q/E</span> ±snap ·
+        <span class="kbd">R</span> 90° ·
+        <span class="kbd">Delete</span> slet ·
+        <span class="kbd">Esc</span> fravælg ·
+        <span class="kbd">Mellemrum</span> pause ·
+        <span class="kbd">G</span> tyngdekraft ·
+        <span class="kbd">T</span> kør tests
+      </div>
+    </div>
+
+    <div id="hud" aria-live="polite">
+      <div class="chip"><div class="dot ok"></div><span id="count">0 racks</span></div>
+      <div class="chip"><div class="dot ok"></div><span id="fill">Fyldningsgrad: 0%</span></div>
+      <div class="chip"><div class="dot"></div><span id="scale">1 mm = ? px</span></div>
+    </div>
+
+    <div id="footer">Rund Tank 2D · Matter.js · Glat hård ydervæg + restitution sliders · Snap-liste & lås orientering</div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/matter-js@0.20.0/build/matter.min.js" crossorigin="anonymous"></script>
+  <script>
+  (() => {
+    const { Engine, Render, Runner, World, Bodies, Body, Composite, Mouse, MouseConstraint, Events, Vector, Common, Bounds, Query, SAT } = Matter;
+
+    const wrap = document.getElementById('wrap');
+    const canvas = document.getElementById('world');
+
+    // UI refs
+    const tankDia = document.getElementById('tankDia');
+    const coreDia = document.getElementById('coreDia');
+    const rackW = document.getElementById('rackW');
+    const rackH = document.getElementById('rackH');
+    const randRot = document.getElementById('randRot');
+    const randPos = document.getElementById('randPos');
+    const snapStepSel = document.getElementById('snapStep');
+    const snapList = document.getElementById('snapList');
+    const lockOrientation = document.getElementById('lockOrientation');
+    const btnSnapAll = document.getElementById('snapAll');
+
+    const wallDeg = document.getElementById('wallDeg');
+    const wallThk = document.getElementById('wallThk');
+
+    const btnAddOne = document.getElementById('addOne');
+    const btnAddTen = document.getElementById('addTen');
+    const btnClear = document.getElementById('clearRacks');
+    const btnRebuild = document.getElementById('rebuild');
+    const btnAddWall = document.getElementById('addWall');
+    const btnPause = document.getElementById('togglePause');
+    const btnSave = document.getElementById('save');
+    const btnLoad = document.getElementById('loadBtn');
+    const fileLoad = document.getElementById('loadFile');
+    const btnDeleteSel = document.getElementById('deleteSelected');
+    const btnDeleteOverlaps = document.getElementById('deleteOverlaps');
+    const btnRunTests = document.getElementById('runTests');
+
+    const hardOuter = document.getElementById('hardOuter');
+    const forceOuterOn = document.getElementById('forceOuterOn');
+    const forceOuterVal = document.getElementById('forceOuterVal');
+    const forceInnerOn = document.getElementById('forceInnerOn');
+    const forceInnerVal = document.getElementById('forceInnerVal');
+
+    const restRR = document.getElementById('restRR');
+    const restRS = document.getElementById('restRS');
+    const restOuter = document.getElementById('restOuter');
+
+    const hudCount = document.getElementById('count');
+    const hudFill = document.getElementById('fill');
+    const hudScale = document.getElementById('scale');
+
+    // Engine
+    const engine = Engine.create({ enableSleeping:true });
+    engine.gravity.y = 0;
+    const render = Render.create({ canvas, engine, options:{ wireframes:false, background:'#0b0e14', pixelRatio: Math.min(window.devicePixelRatio, 2) } });
+    const runner = Runner.create(); Runner.run(runner, engine); Render.run(render);
+
+    // Scene state
+    let center = { x:0, y:0 };
+    let radiusPx = 0;
+    let coreRadiusPx = 0;
+    let mmToPx = 1;
+    let paused = false;
+    let selectedBody = null;
+    let mouseConstraint;
+    let lastPlacedBody = null;
+
+    const STATIC = Composite.create({ label:'static' });
+    const RACKS  = Composite.create({ label:'racks' });
+    World.add(engine.world, [STATIC, RACKS]);
+
+    // Persist settings
+    const LS_KEY = 'tankpacker.settings.v4';
+    function saveSettings(){
+      const data = {
+        randRot: randRot.checked, randPos: randPos.checked, snap: snapStepSel.value, snapList: snapList.value, lock: lockOrientation.checked,
+        hardOuter: hardOuter.checked,
+        fOuterOn: forceOuterOn.checked, fOuterVal: forceOuterVal.value,
+        fInnerOn: forceInnerOn.checked, fInnerVal: forceInnerVal.value,
+        restRR: restRR.value, restRS: restRS.value, restOuter: restOuter.value,
+      };
+      localStorage.setItem(LS_KEY, JSON.stringify(data));
+    }
+    function loadSettings(){
+      try{
+        const d = JSON.parse(localStorage.getItem(LS_KEY)||'{}');
+        if (typeof d.randRot === 'boolean') randRot.checked = d.randRot;
+        if (typeof d.randPos === 'boolean') randPos.checked = d.randPos;
+        if (d.snap) snapStepSel.value = String(d.snap);
+        if (typeof d.snapList === 'string') snapList.value = d.snapList;
+        if (typeof d.lock === 'boolean') lockOrientation.checked = d.lock;
+        if (typeof d.hardOuter === 'boolean') hardOuter.checked = d.hardOuter; else hardOuter.checked = true;
+        if (typeof d.fOuterOn === 'boolean') forceOuterOn.checked = d.fOuterOn;
+        if (d.fOuterVal!=null) forceOuterVal.value = d.fOuterVal;
+        if (typeof d.fInnerOn === 'boolean') forceInnerOn.checked = d.fInnerOn;
+        if (d.fInnerVal!=null) forceInnerVal.value = d.fInnerVal;
+        if (d.restRR!=null) restRR.value = d.restRR;
+        if (d.restRS!=null) restRS.value = d.restRS;
+        if (d.restOuter!=null) restOuter.value = d.restOuter;
+      }catch{}
+    }
+    loadSettings();
+
+    // Utils
+    const num = (v, def=0, min=null, max=null) => { let n = parseFloat(v); if(!isFinite(n)) n = def; if(min!==null && n<min) n = min; if(max!==null && n>max) n = max; return n; };
+    const getCSS = name => getComputedStyle(document.documentElement).getPropertyValue(name) || '#fff';
+    const degToRad = d=> d*Math.PI/180; const radToDeg = r=> r*180/Math.PI;
+    function parseSnapList(){ const s = (snapList.value||'').trim(); if (!s) return []; const arr = s.split(/[\,\s]+/).map(x=>parseFloat(x)).filter(x=>isFinite(x)).map(x=> ((x%360)+360)%360 ); return [...new Set(arr)].sort((a,b)=>a-b).map(degToRad); }
+    function angleDiff(a,b){ let d = Math.abs(a-b) % (2*Math.PI); return d > Math.PI ? 2*Math.PI - d : d; }
+    function nearestAllowed(a){ const allowed = parseSnapList(); if (!allowed.length) return null; let best = allowed[0], bestD = angleDiff(a,best); for (let i=1;i<allowed.length;i++){ const d = angleDiff(a, allowed[i]); if (d < bestD){ bestD = d; best = allowed[i]; } } const twopi = 2*Math.PI; let k = Math.round((a-best)/twopi); return best + k*twopi; }
+    const stepRad = () => { const d = parseFloat(snapStepSel.value); return isFinite(d) && d>0 ? degToRad(d) : 0; };
+    function snapAngle(a){ const nearest = nearestAllowed(a); if (nearest !== null) return nearest; const s = stepRad(); if(!s) return a; return Math.round(a/s)*s; }
+    const safeCollided = (A,B) => { const res = SAT.collides(A,B); return !!(res && res.collided); };
+
+    // Geometry helpers
+    function dist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
+    function distPointToSeg(p,a,b){ const abx=b.x-a.x, aby=b.y-a.y; const apx=p.x-a.x, apy=p.y-a.y; const ab2=abx*abx+aby*aby; const t = ab2? Math.max(0, Math.min(1, (apx*abx+apy*aby)/ab2)) : 0; const x=a.x+t*abx, y=a.y+t*aby; return Math.hypot(p.x-x,p.y-y); }
+
+    // Precise ring/core validation
+    function violatesTank(body){ if (violatesOuter(body)) return true; if (violatesCore(body)) return true; return false; }
+    function violatesOuter(body){ const verts = body.vertices; const tol=0.5; for (const v of verts){ if (dist(v, center) > radiusPx - tol) return true; } return false; }
+    function violatesCore(body){ if (coreRadiusPx<=0) return false; const verts = body.vertices; const tol=0.5; for (const v of verts){ if (dist(v, center) < coreRadiusPx + tol) return true; } for (let i=0;i<verts.length;i++){ const a=verts[i], b=verts[(i+1)%verts.length]; if (distPointToSeg(center,a,b) < coreRadiusPx + tol) return true; } return false; }
+
+    // Mouse & selection & click-placering
+    function addMouse(){
+      const mouse = Mouse.create(render.canvas);
+      mouseConstraint = MouseConstraint.create(engine, { mouse, constraint:{ stiffness:0.25, angularStiffness:0.2, render:{visible:false} } });
+      World.add(engine.world, mouseConstraint);
+      render.mouse = mouse;
+
+      let downPos=null, downTime=0;
+      canvas.addEventListener('mousedown', ()=>{ downPos = {x:mouse.position.x, y:mouse.position.y}; downTime = performance.now(); });
+      canvas.addEventListener('mouseup', ()=>{
+        const upPos = {x:mouse.position.x, y:mouse.position.y};
+        const dt = performance.now()-downTime; const dxy = Math.hypot(upPos.x-(downPos?.x||0), upPos.y-(downPos?.y||0));
+        const isClick = dt < 250 && dxy < 6; if (!isClick) return; handleCanvasClick(upPos);
+      });
+    }
+
+    function handleCanvasClick(pos){
+      const bodies = Composite.allBodies(RACKS);
+      const hits = Query.point(bodies, pos);
+      if (hits.length){ selectedBody = hits[0]; return; }
+      const wMm = Math.max(1, num(rackW.value,25,1));
+      const hMm = Math.max(1, num(rackH.value,250,1));
+      const ang0 = randRot.checked ? Math.random()*Math.PI : 0;
+      const angle = snapAngle(ang0);
+      const ok = tryPlaceAt(pos.x, pos.y, wMm, hMm, angle, /*nudge*/true);
+      if (ok) { lastPlacedBody = ok; updateHUD(); }
+    }
+
+    // Resize & scale
+    function resize(){
+      const w = wrap.clientWidth, h = wrap.clientHeight;
+      render.canvas.width = w; render.canvas.height = h; center = {x:w/2,y:h/2};
+      const margin = 36; radiusPx = Math.max(60, Math.min(w,h)/2 - margin);
+      const tankMm = Math.max(10, num(tankDia.value,700,10));
+      mmToPx = (radiusPx*2) / tankMm; coreRadiusPx = (num(coreDia.value,0,0)/2) * mmToPx;
+      hudScale.textContent = `1 mm = ${mmToPx.toFixed(2)} px`;
+    }
+    window.addEventListener('resize', resize);
+
+    // Draw overlays
+    Events.on(render, 'afterRender', () => {
+      const ctx = render.context; ctx.save(); ctx.translate(0.5,0.5);
+      // tank
+      ctx.beginPath(); ctx.arc(center.x, center.y, radiusPx, 0, Math.PI*2); ctx.strokeStyle = '#2b3241'; ctx.lineWidth = 2; ctx.stroke();
+      if (coreRadiusPx>0){ ctx.beginPath(); ctx.arc(center.x, center.y, coreRadiusPx, 0, Math.PI*2); ctx.setLineDash([6,4]); ctx.strokeStyle='#3a4154'; ctx.lineWidth=2; ctx.stroke(); ctx.setLineDash([]); }
+
+      // ghost
+      const m = render.mouse; if (m && m.position){
+        const wPx = Math.max(1, num(rackW.value,25,1) * mmToPx);
+        const hPx = Math.max(1, num(rackH.value,250,1) * mmToPx);
+        const pos = m.position; const baseAngle = 0; const gAngle = snapAngle(baseAngle);
+        const corners = [ {x:-wPx/2, y:-hPx/2}, {x: wPx/2, y:-hPx/2}, {x: wPx/2, y:hPx/2}, {x:-wPx/2, y:hPx/2} ]
+          .map(p=>({ x: pos.x + Math.cos(gAngle)*p.x - Math.sin(gAngle)*p.y, y: pos.y + Math.sin(gAngle)*p.x + Math.cos(gAngle)*p.y }));
+        let ok = true; for (const v of corners){ if (dist(v, center) > radiusPx - 2) ok=false; }
+        if (coreRadiusPx>0){ for (const v of corners){ if (dist(v, center) < coreRadiusPx + 2) ok=false; }
+          for (let i=0;i<corners.length;i++){ const a=corners[i], b=corners[(i+1)%corners.length]; if (distPointToSeg(center,a,b) < coreRadiusPx + 2) ok=false; } }
+        ctx.save(); ctx.translate(pos.x, pos.y); ctx.rotate(gAngle); ctx.globalAlpha = ok ? .28 : .12; ctx.fillStyle = ok ? getCSS('--ok') : getCSS('--bad'); ctx.fillRect(-wPx/2,-hPx/2,wPx,hPx); ctx.restore();
+      }
+
+      // selection outline
+      if (selectedBody){ ctx.save(); ctx.lineWidth = 2.5; ctx.strokeStyle = getCSS('--sel'); ctx.beginPath(); const v = selectedBody.vertices; ctx.moveTo(v[0].x, v[0].y); for (let i=1;i<v.length;i++) ctx.lineTo(v[i].x, v[i].y); ctx.closePath(); ctx.stroke(); ctx.restore(); }
+      ctx.restore();
+    });
+
+    // === Restitution application ===
+    function applyRestitutionAll(){
+      const rRR = num(restRR.value, 0.6, 0, 1);
+      const rRS = num(restRS.value, 0.6, 0, 1);
+      // racks
+      Composite.allBodies(RACKS).forEach(b=>{ if(!b.isStatic) b.restitution = rRR; });
+      // statics: kerne + radiale vægge
+      Composite.allBodies(STATIC).forEach(b=>{ b.restitution = rRS; });
+    }
+
+    // Containment + orientation lock + hard outer reflection
+    function reflectOuterIfNeeded(b){
+      if (!hardOuter.checked) return;
+      // Normal udad fra center
+      const toC = Vector.sub(b.position, center); let len = Vector.magnitude(toC); if (len<1e-6) len = 1e-6; const n = Vector.mult(toC, 1/len);
+      // Support distance (max dot) af alle vertices mod n
+      let maxDot = -Infinity; for (const v of b.vertices){ const d = (v.x - center.x)*n.x + (v.y - center.y)*n.y; if (d > maxDot) maxDot = d; }
+      const allowed = radiusPx - 0.5; // slop
+      if (maxDot > allowed){
+        const overlap = maxDot - allowed;
+        // Projektion indad
+        Body.translate(b, { x: -n.x * overlap, y: -n.y * overlap });
+        // Reflektér hastighedens normal-komponent
+        const e = num(restOuter.value, 0.6, 0, 1);
+        const v = b.velocity; const vn = v.x*n.x + v.y*n.y; // dot
+        const vx = v.x - (1+e)*vn*n.x; const vy = v.y - (1+e)*vn*n.y;
+        Body.setVelocity(b, { x: vx, y: vy });
+      }
+    }
+
+    function containBodies(){
+      const list = Composite.allBodies(RACKS).filter(b=>!b.isStatic);
+      const lock = lockOrientation.checked;
+      for (const b of list){
+        if (lock){ Body.setAngularVelocity(b, 0); Body.setAngle(b, snapAngle(b.angle)); }
+        // Hard outer reflect
+        reflectOuterIfNeeded(b);
+        // Soft outer contain kun når hård er OFF
+        if (!hardOuter.checked && violatesOuter(b)){
+          const toC = Vector.sub(b.position, center); const distC = Vector.magnitude(toC)||1e-6; const n = Vector.mult(toC, 1/distC);
+          Body.translate(b, Vector.mult(n, -2));
+        }
+        // Kerne-nudge som failsafe
+        if (violatesCore(b)){
+          const toC = Vector.sub(b.position, center); const distC = Vector.magnitude(toC)||1e-6; const n = Vector.mult(toC, 1/distC);
+          Body.translate(b, Vector.mult(n, 2));
+        }
+      }
+    }
+
+    // Radial forces
+    function applyRadialForces(){
+      const outOn = forceOuterOn.checked, inOn = forceInnerOn.checked;
+      const fOut = num(forceOuterVal.value, 0.0004, 0); const fIn = num(forceInnerVal.value, 0.0004, 0);
+      if (!outOn && !inOn) return;
+      const list = Composite.allBodies(RACKS).filter(b=>!b.isStatic);
+      for (const b of list){
+        const toC = Vector.sub(center, b.position); let distC = Vector.magnitude(toC); if (!isFinite(distC) || distC<1e-6) distC=1e-6; const nin = Vector.mult(toC, 1/distC);
+        if (outOn){ Body.applyForce(b, b.position, { x: -nin.x * fOut, y: -nin.y * fOut }); }
+        if (inOn){ Body.applyForce(b, b.position, { x:  nin.x * fIn, y:  nin.y * fIn }); }
+      }
+    }
+
+    Events.on(engine, 'beforeUpdate', ()=>{ containBodies(); applyRadialForces(); });
+
+    // Build core (no outer ring bodies anymore)
+    function rebuildTank(){
+      // fjern alle statiske (kerne + radiale vægge)
+      for (const b of Composite.allBodies(STATIC)) World.remove(STATIC, b);
+      // kerne
+      coreRadiusPx = (num(coreDia.value,0,0)/2) * mmToPx;
+      if (coreRadiusPx>0){ const core = Bodies.circle(center.x, center.y, coreRadiusPx, { isStatic:true, render:{ fillStyle:'#101522', strokeStyle:'#3a4154', lineWidth:2 } }); World.add(STATIC, core); }
+      applyRestitutionAll();
+    }
+
+    // Racks
+    function makeRack(x,y,wMm,hMm,angle=0){
+      const wPx = Math.max(1, wMm) * mmToPx, hPx = Math.max(1, hMm) * mmToPx;
+      const b = Bodies.rectangle(x, y, wPx, hPx, { chamfer:{ radius: Math.min(wPx,hPx)*0.08 }, restitution:num(restRR.value,0.6,0,1), friction:0.1, frictionAir:0.02, render:{ fillStyle:'#1e2638', strokeStyle:'#5a6684', lineWidth:1.5 } });
+      b.plugin = b.plugin || {}; b.plugin.mmSize = { w_mm:wMm, h_mm:hMm }; b.plugin.origInertia = b.inertia;
+      if (angle) Body.rotate(b, angle);
+      if (lockOrientation.checked){ Body.setInertia(b, Infinity); Body.setAngularVelocity(b, 0); Body.setAngle(b, snapAngle(b.angle)); }
+      return b;
+    }
+
+    function guessMmSize(b){ const wPx = (b.bounds.max.x-b.bounds.min.x), hPx=(b.bounds.max.y-b.bounds.min.y); return { w_mm: wPx/mmToPx, h_mm:hPx/mmToPx }; }
+
+    function validPlacement(candidate){
+      if (violatesTank(candidate)) return false;
+      const stat = Composite.allBodies(STATIC);
+      for (const s of stat){ if (safeCollided(candidate, s)) return false; }
+      const bodies = Composite.allBodies(RACKS);
+      for (const b of bodies){ if (Bounds.overlaps(candidate.bounds, b.bounds)){ if (safeCollided(candidate, b)) return false; } }
+      return true;
+    }
+
+    function tryPlaceAt(x,y,wMm,hMm,angle=0,nudge=true){
+      let cand = makeRack(x,y,wMm,hMm,angle);
+      if (validPlacement(cand)){ World.add(RACKS, cand); applyRestitutionAll(); return cand; }
+      if (!nudge) return null;
+      const step = 6, maxR = 120;
+      for (let r=step; r<=maxR; r+=step){
+        for (let a=0; a<Math.PI*2; a+=Math.PI/8){
+          const nx = x + r*Math.cos(a), ny = y + r*Math.sin(a);
+          cand = makeRack(nx,ny,wMm,hMm,angle);
+          if (validPlacement(cand)){ World.add(RACKS, cand); applyRestitutionAll(); return cand; }
+        }
+      }
+      return null;
+    }
+
+    function placeNearLast(wMm,hMm){
+      const base = lastPlacedBody; if (!base) return null;
+      const gapPx = 2 * mmToPx;
+      const angles = []; for (let k=0;k<8;k++) angles.push(k*Math.PI/4);
+      const spawnAngle = lockOrientation.checked ? snapAngle(base.angle) : (randRot.checked ? Math.random()*Math.PI : 0);
+      const useAngle = snapAngle(spawnAngle);
+      const baseDiag = Math.hypot(base.bounds.max.x-base.bounds.min.x, base.bounds.max.y-base.bounds.min.y);
+      const newDiag = Math.hypot(wMm*mmToPx, hMm*mmToPx);
+      const dist = (baseDiag + newDiag)/2 + gapPx;
+      for (const a of angles){ const nx = base.position.x + dist*Math.cos(a); const ny = base.position.y + dist*Math.sin(a); const candidate = tryPlaceAt(nx, ny, wMm, hMm, useAngle, true); if (candidate) return candidate; }
+      return null;
+    }
+
+    function addRackSmart(){
+      const wMm = Math.max(1, num(rackW.value,25,1)); const hMm = Math.max(1, num(rackH.value,250,1));
+      let placed = null;
+      if (!randPos.checked && lastPlacedBody){ placed = placeNearLast(wMm,hMm); }
+      if (!placed){ let angle = randRot.checked ? Math.random()*Math.PI : 0; angle = snapAngle(angle);
+        if (randPos.checked){
+          const diagPx = Math.hypot(wMm*mmToPx, hMm*mmToPx); const rad = diagPx/2; const minR = Math.max(coreRadiusPx + rad + 8, 10);
+          const r = Common.random(minR, Math.max(minR+10, radiusPx - rad - 10)); const theta = Common.random(0, Math.PI*2);
+          const pos = { x:center.x + r*Math.cos(theta), y:center.y + r*Math.sin(theta) };
+          placed = tryPlaceAt(pos.x,pos.y,wMm,hMm,angle,true);
+        } else { placed = tryPlaceAt(center.x, center.y, wMm, hMm, angle, true); }
+      }
+      if (placed){ lastPlacedBody = placed; updateHUD(); selectedBody = placed; }
+      return placed;
+    }
+
+    function addWall(deg, thicknessMm){ const angle = (deg||0)*Math.PI/180; const len = radiusPx*2+20; const t = Math.max(1, thicknessMm)*mmToPx; const wall = Bodies.rectangle(center.x, center.y, len, t, { isStatic:true, angle, render:{ fillStyle:'#1a2233' } }); wall.restitution = num(restRS.value,0.6,0,1); World.add(STATIC, wall); return wall; }
+
+    function clearRacks(){ for (const b of Composite.allBodies(RACKS)) World.remove(RACKS, b); selectedBody=null; lastPlacedBody=null; updateHUD(); }
+    function setPaused(p){ paused=p; runner.enabled=!paused; }
+
+    function saveLayout(){ const racks = Composite.allBodies(RACKS).filter(b=>!b.isStatic); const data = { tankDiaMm:num(tankDia.value,700,10), coreDiaMm:num(coreDia.value,0,0), racks: racks.map(b=>{ const sz=b.plugin?.mmSize||guessMmSize(b); return { x_mm:(b.position.x-center.x)/mmToPx, y_mm:(b.position.y-center.y)/mmToPx, w_mm:sz.w_mm, h_mm:sz.h_mm, angle:b.angle }; }) }; const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'}); const url = URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='tank-layout.json'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url); }
+
+    function loadLayoutObj(obj){ tankDia.value = obj.tankDiaMm ?? tankDia.value; coreDia.value = obj.coreDiaMm ?? coreDia.value; resize(); rebuildTank(); clearRacks(); for (const r of (obj.racks||[])){ const x=center.x + r.x_mm*mmToPx, y=center.y + r.y_mm*mmToPx; const b = makeRack(x,y,r.w_mm,r.h_mm,r.angle||0); World.add(RACKS, b); lastPlacedBody=b; } applyRestitutionAll(); updateHUD(); }
+
+    function deleteSelected(){ if (selectedBody){ World.remove(RACKS, selectedBody); selectedBody=null; updateHUD(); } }
+
+    function collectOverlaps(){ const toDel = new Set(); const racks = Composite.allBodies(RACKS); const stat = Composite.allBodies(STATIC); for (const b of racks){ if (violatesTank(b)) toDel.add(b); } for (const b of racks){ for (const s of stat){ if (safeCollided(b,s)) { toDel.add(b); break; } } } for (let i=0;i+racks.length>i;i++){} for (let i=0;i<racks.length;i++) for (let j=i+1;j<racks.length;j++){ const A=racks[i], B=racks[j]; if (Bounds.overlaps(A.bounds,B.bounds) && safeCollided(A,B)){ toDel.add(A); toDel.add(B); } } return toDel; }
+
+    function deleteOverlaps(){ const toDel = collectOverlaps(); toDel.forEach(b=>World.remove(RACKS,b)); if (toDel.size){ updateHUD(); alert(`${toDel.size} emne(r) slettet pga. overlap/regelbrud.`); } }
+
+    function applyOrientationLockAll(){ const lock = lockOrientation.checked; const bodies = Composite.allBodies(RACKS); for (const b of bodies){ if (lock){ Body.setInertia(b, Infinity); Body.setAngularVelocity(b,0); Body.setAngle(b, snapAngle(b.angle)); } else { Body.setInertia(b, b.plugin?.origInertia || b.inertia); } } }
+
+    // HUD
+    function updateHUD(){ const racks = Composite.allBodies(RACKS).filter(b=>!b.isStatic); hudCount.textContent = `${racks.length} rack${racks.length===1?'':''}`; const areaTank = Math.PI * Math.pow((radiusPx/mmToPx),2) - Math.PI * Math.pow((coreRadiusPx/mmToPx),2); let areaRacks=0; for (const b of racks){ const sz=b.plugin?.mmSize||guessMmSize(b); areaRacks += sz.w_mm*sz.h_mm; } const fill = Math.max(0, Math.min(100, (areaRacks/areaTank)*100)); hudFill.textContent = `Fyldningsgrad: ${fill.toFixed(1)}%`; }
+    setInterval(updateHUD, 600);
+
+    // Selvtests (hurtige sanity checks)
+    function runSelfTests(){
+      let passed=0, failed=0; const results=[]; function t(name, cond){ if(cond){passed++; results.push(`✔ ${name}`);} else {failed++; results.push(`✘ ${name}`);} }
+      try{ t('nearestAllowed 0,90: 70°→90°', (snapList.value='0,90', Math.abs(radToDeg(snapAngle(degToRad(70))) - 90) < 1e-6)); }catch(e){ failed++; results.push(`✘ snapAngle: ${e.message}`); }
+      try{ const a1=Bodies.rectangle(0,0,100,40); const a2=Bodies.rectangle(500,0,100,40); t('safeCollided(fjern)==false', safeCollided(a1,a2)===false); }catch(e){ failed++; results.push(`✘ safeCollided(fjern): ${e.message}`); }
+      try{ const b1=Bodies.rectangle(0,0,100,40); const b2=Bodies.rectangle(0,0,100,40); t('safeCollided(overlap)==true', safeCollided(b1,b2)===true); }catch(e){ failed++; results.push(`✘ safeCollided(overlap): ${e.message}`); }
+      try{ // reflektionsformel: v' = v - (1+e)(v·n)n
+        const e = 0.6; const n={x:1,y:0}; const v={x:-2,y:1}; const vn=v.x*n.x+v.y*n.y; const vx=v.x-(1+e)*vn*n.x; const vy=v.y-(1+e)*vn*n.y; t('reflektionsformel sanity', Math.abs(vx-1.2)<1e-6 && Math.abs(vy-1)<1e-6);
+      }catch(err){ failed++; results.push(`✘ reflektionsformel: ${err.message}`); }
+      console.group('Tankpacker selvtests'); results.forEach(r=>console.log(r)); console.log(`Resultat: ${passed} bestået, ${failed} fejlet`); console.groupEnd();
+      return {passed, failed, lines: results};
+    }
+
+    // Keys
+    window.addEventListener('keydown', (e)=>{
+      if (e.code==='Space'){ e.preventDefault(); setPaused(!paused); return; }
+      if (e.key==='g' || e.key==='G'){ engine.gravity.y = engine.gravity.y===0 ? 1 : 0; return; }
+      if (e.key==='Escape'){ selectedBody=null; return; }
+      if (e.key==='t' || e.key==='T'){ const r=runSelfTests(); alert(`Tests: ${r.passed} ✓ / ${r.failed} ✗\n(se konsollen for detaljer)`); return; }
+      if (selectedBody){
+        if (e.key==='Delete'){ deleteSelected(); return; }
+        if (e.key==='r' || e.key==='R'){ Body.rotate(selectedBody, Math.PI/2); Body.setAngle(selectedBody, snapAngle(selectedBody.angle)); return; }
+        if (e.key==='q' || e.key==='Q'){ const step = stepRad()|| (Math.PI/12); Body.rotate(selectedBody, -step); Body.setAngle(selectedBody, snapAngle(selectedBody.angle)); return; }
+        if (e.key==='e' || e.key==='E'){ const step = stepRad()|| (Math.PI/12); Body.rotate(selectedBody,  step); Body.setAngle(selectedBody, snapAngle(selectedBody.angle)); return; }
+      }
+    });
+
+    // UI handlers
+    btnAddOne.addEventListener('click', ()=>{ addRackSmart(); });
+    btnAddTen.addEventListener('click', ()=>{ for(let i=0;i<10;i++) addRackSmart(); });
+    btnClear.addEventListener('click', clearRacks);
+    btnRebuild.addEventListener('click', ()=>{ resize(); rebuildTank(); });
+    btnAddWall.addEventListener('click', ()=> addWall(num(wallDeg.value,0), num(wallThk.value,10,1)) );
+    btnPause.addEventListener('click', ()=> setPaused(!paused));
+    btnSave.addEventListener('click', saveLayout);
+    btnLoad.addEventListener('click', ()=> fileLoad.click());
+    fileLoad.addEventListener('change', async (e)=>{ const f=e.target.files?.[0]; if(!f) return; try{ const txt=await f.text(); const obj=JSON.parse(txt); loadLayoutObj(obj); }catch(err){ alert('Kunne ikke læse JSON: '+err.message); } e.target.value=''; });
+
+    [randRot, randPos, snapStepSel, snapList, lockOrientation, hardOuter, forceOuterOn, forceOuterVal, forceInnerOn, forceInnerVal, restRR, restRS, restOuter].forEach(el=> el.addEventListener('change', ()=>{ saveSettings(); if (el===lockOrientation || el===snapStepSel || el===snapList) applyOrientationLockAll(); if (el===hardOuter) {/* no rebuild needed for smooth wall */} if (el===restRR || el===restRS) applyRestitutionAll(); }));
+    btnSnapAll.addEventListener('click', ()=>{ applyOrientationLockAll(); });
+    btnRunTests.addEventListener('click', ()=>{ const r=runSelfTests(); alert(`Tests: ${r.passed} ✓ / ${r.failed} ✗\n(se konsollen for detaljer)`); });
+
+    // Init
+    resize(); addMouse(); rebuildTank(); applyRestitutionAll(); applyOrientationLockAll();
+    for (let i=0;i<6;i++) addRackSmart();
+
+    // Anti-stuck micro-jiggle
+    setInterval(()=>{ Composite.allBodies(RACKS).forEach(b=>{ if(!b.isStatic && b.speed < 0.01){ Body.applyForce(b, b.position, { x:(Math.random()-0.5)*0.0005, y:(Math.random()-0.5)*0.0005 }); } }); }, 1800);
+
+  })();
+  </script>
+</body>
+</html>
